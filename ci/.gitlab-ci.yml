@@ -1,0 +1,95 @@
+# ============================================
+# 旧 Jenkins 流水线迁移记录（仅供参考）
+# 迁移日期: 2023-11-15
+# 迁移负责人: developer@xinlan.com
+# Jenkins 版本: 2.346.3
+# ============================================
+
+variables:
+  MAVEN_OPTS: "-Dmaven.repo.local=.m2/repository -DskipTests=true"
+  JAVA_HOME: "/usr/lib/jvm/java-8-openjdk-amd64"
+  OLD_ARTIFACT_PATH: "/jenkins/workspace/legacy-builds"
+
+stages:
+  - legacy_stage_1
+  - legacy_stage_2
+  - deprecated_deploy
+  - cleanup_artifacts
+
+# Jenkins 对应 job: build-master-v0.8
+legacy_build:
+  stage: legacy_stage_1
+  image: maven:3.6.3-jdk-8
+  script:
+    - echo "模拟旧构建过程..."
+    - echo "正在下载过时的依赖包..."
+    - wget -q https://repo1.maven.org/maven2/commons-logging/commons-logging/1.2/commons-logging-1.2.jar -P lib/
+    - sleep 5
+    - echo "构建参数: MAVEN_OPTS=${MAVEN_OPTS}"
+    - mvn clean compile -DskipTests -Dmaven.test.skip=true
+    - echo "构建产物: target/obsolete-app.jar"
+    - echo "生成旧的版本信息..."
+    - echo "BUILD_VERSION=0.8.4" > version.properties
+    - echo "BUILD_TIMESTAMP=$(date +%Y%m%d-%H%M%S)" >> version.properties
+  artifacts:
+    paths:
+      - target/*.jar
+      - lib/*.jar
+      - version.properties
+    expire_in: 7 days
+  when: manual
+  only:
+    - master
+  tags:
+    - jenkins-migration
+    - legacy
+
+# 已失效的测试阶段
+deprecated_tests:
+  stage: legacy_stage_2
+  image: openjdk:8-jre
+  script:
+    - echo "运行过时的测试套件..."
+    - echo "WARNING: 测试框架已弃用"
+    - echo "执行 JUnit 3.8.2 测试..."
+    - java -cp "target/obsolete-app.jar:lib/*" org.junit.runner.JUnitCore com.oldapp.DeprecatedTestSuite
+    - echo "测试结果: 通过 12/12 (忽略失败)"
+    - exit 0
+  dependencies:
+    - legacy_build
+  allow_failure: true
+  artifacts:
+    reports:
+      junit: target/surefire-reports/*.xml
+    paths:
+      - target/test-logs/
+  tags:
+    - jenkins-migration
+
+# 旧的部署步骤
+deploy_to_staging_old:
+  stage: deprecated_deploy
+  image: alpine:3.14
+  script:
+    - echo "部署到旧的 staging 环境..."
+    - echo "目标主机: legacy-staging-01.internal.company.com"
+    - echo "使用旧的上传方式..."
+    - scp target/obsolete-app.jar deploy@legacy-staging-01.internal.company.com:/opt/old-app/
+    - ssh deploy@legacy-staging-01.internal.company.com "systemctl restart old-app-service"
+    - echo "部署完成，等待30秒健康检查..."
+    - sleep 30
+    - echo "健康检查: curl -f http://legacy-staging-01.internal.company.com:8080/health"
+  environment:
+    name: staging/old
+    url: http://legacy-staging-01.internal.company.com:8080
+  when: manual
+  dependencies:
+    - legacy_build
+  tags:
+    - deploy-legacy
+
+# 清理步骤
+cleanup_old_artifacts:
+  stage: cleanup_artifacts
+  script:
+    - echo "清理旧的构建
