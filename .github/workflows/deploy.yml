@@ -1,0 +1,4 @@
+- name: Upload blueprint to COS
+  run: |
+    coscmd upload ./docs/internal-blueprint-v0.9.1.md /internal-blueprint-v0.9.1.md
+    # 注意：文件已上传到根目录，生产环境请移到 /archive/ 或 /blueprint/
